@@ -1,58 +1,40 @@
 package sqs
 
 import (
-	"net/http"
-
+	"github.com/aws/aws-sdk-go/aws"
 	awssqs "github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/openzipkin/zipkin-go/model"
 	"github.com/openzipkin/zipkin-go/propagation"
 	"github.com/openzipkin/zipkin-go/propagation/b3"
 )
 
+const b3Key = "b3"
+
+// ExtractSQS extracts returns an extractor for a given sqs.Message
 func ExtractSQS(message awssqs.Message) propagation.Extractor {
 	return func() (*model.SpanContext, error) {
-		
+		return b3.ParseSingleHeader(getB3AttributeValue(message.MessageAttributes))
 	}
 }
 
-func InjectHTTP(input *awssqs.SendMessageInput) propagation.Injector {
+// InjectSQS returns an injector for a given sqs.SendMessageInput
+func InjectSQS(input *awssqs.SendMessageInput) propagation.Injector {
 	return func(sc model.SpanContext) error {
 		if (model.SpanContext{}) == sc {
 			return b3.ErrEmptyContext
 		}
 
-		val := ""
-
-		if sc.Debug {
-			
-		} else if sc.Sampled != nil {
-			// Debug is encoded as X-B3-Flags: 1. Since Debug implies Sampled,
-			// so don't also send "X-B3-Sampled: 1".
-			if *sc.Sampled {
-				r.Header.Set(Sampled, "1")
-			} else {
-				r.Header.Set(Sampled, "0")
-			}
-		}
-
-		if !sc.TraceID.Empty() && sc.ID > 0 {
-			r.Header.Set(TraceID, sc.TraceID.String())
-			r.Header.Set(SpanID, sc.ID.String())
-			if sc.ParentID != nil {
-				r.Header.Set(ParentSpanID, sc.ParentID.String())
-			}
-		}
-
-		input.MessageAttributes["b3"] = awssqs.MessageAttributeValue{
-			StringValue: &val,
+		input.MessageAttributes[b3Key] = &awssqs.MessageAttributeValue{
+			StringValue: aws.String(b3.BuildSingleHeader(sc)),
+			DataType:    aws.String("String"),
 		}
 
 		return nil
 	}
 }
 
-func getAttributeValue(attrs map[string]*awssqs.MessageAttributeValue, key string) string {
-	if val, ok := attrs[key]; ok {
+func getB3AttributeValue(attrs map[string]*awssqs.MessageAttributeValue) string {
+	if val, ok := attrs[b3Key]; ok {
 		return val.String()
 	}
 
